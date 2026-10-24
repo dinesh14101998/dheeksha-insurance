@@ -12,7 +12,10 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test tests/*.test.js",
-    "test:integration": "node --test tests/integration/*.test.js"
+    "test:integration": "node --test tests/integration/*.test.js",
+    "db:init": "node src/scripts/initDb.js",
+    "test:smtp": "node src/scripts/verifySmtp.js",
+    "verify:app": "node src/scripts/verifyApplication.js"
   },
   "keywords": [
     "insurance",

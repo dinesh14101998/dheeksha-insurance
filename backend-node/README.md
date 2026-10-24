@@ -153,5 +153,23 @@ npm run test:integration
 4. **Local-Only Hostname**: Host must be `localhost`, `127.0.0.1`, or `::1`. Remote hosts are strictly prohibited.
 5. **Dedicated Least-Privilege Test User**: Cannot run as `root` or an administrative user (`admin`, `administrator`, `sa`). Must use a dedicated test user (e.g. `dheeksha_test_user`).
 6. **Mandatory Email Suppression**: Email delivery must be suppressed via mock transporter before integration tests execute.
-7. **Manual Schema Provisioning Prerequisite**: The test runner never executes migrations or creates tables automatically. The test schema must be pre-provisioned via the existing Python Alembic migration (`alembic upgrade head` applying revision `78b1008ece61`).
+7. **Schema Provisioning Prerequisite**: The test runner never executes migrations or creates tables automatically. The test schema must be pre-provisioned using the standalone Node.js database initialization script (`npm run db:init -- --confirm`), which executes `backend-node/src/config/schema.sql` (maintaining exact table and column definition parity with historical Alembic revision `78b1008ece61`).
 8. **Narrowly-Scoped Cleanup**: Cleanup only deletes test-created records by exact recorded UUIDs (`DELETE FROM enquiries WHERE id IN (?)`). Destructive commands (`TRUNCATE`, `DROP TABLE`, unconstrained `DELETE`) are strictly forbidden.
+
+### 6.3 Standalone Database Schema Initialization
+
+The Node.js backend includes standalone schema provisioning via `backend-node/src/config/schema.sql` and `src/scripts/initDb.js`, completely eliminating any runtime dependency on Python or Alembic.
+
+To initialize a fresh, empty database schema:
+
+```bash
+cd backend-node
+npm run db:init -- --confirm
+```
+
+#### Initialization Safeguards & Constraints:
+1. **Explicit Confirmation Required**: Requires the `--confirm` CLI flag (or `CONFIRM_DB_INIT=true` environment variable) to prevent accidental execution.
+2. **Fail-Closed Target Protection**: Refuses execution against the production database `dheeksha_insurance`, any database containing `prod`, or system/unrelated databases (`mysql`, `information_schema`, `performance_schema`, `sys`, `bitforum`, `foodhunter`).
+3. **Administrative User Rejection**: Prohibits running under administrative accounts (`root`, `admin`, `administrator`, `sa`). A dedicated application user is required.
+4. **Non-Destructive Table Check**: Inspects the target database before applying DDL. If tables (`admins`, `enquiries`) already exist, the script safely aborts without dropping, truncating, or altering existing data.
+5. **Local-Only Hostname**: Restricts execution strictly to local hostnames (`localhost`, `127.0.0.1`, `::1`).

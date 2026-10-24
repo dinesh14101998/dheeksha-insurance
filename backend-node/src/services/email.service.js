@@ -237,9 +237,13 @@ export function setTransporter(transporter) {
  * Returns active Nodemailer transporter instance, or null if SMTP is unconfigured.
  * @returns {import('nodemailer').Transporter | null}
  */
-export function getTransporter() {
+export function getTransporter(options = {}) {
   if (customTransporter) {
     return customTransporter;
+  }
+
+  if (!options?.ignoreSuppression && (process.env.SUPPRESS_EMAIL === 'true' || process.env.EMAIL_SUPPRESSION === 'true')) {
+    return null;
   }
 
   const config = getConfig();

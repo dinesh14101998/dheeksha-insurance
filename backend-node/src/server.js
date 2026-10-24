@@ -1,14 +1,17 @@
 import { getConfig } from './config/env.js';
 import { initPool, closePool, checkDatabaseHealth } from './config/database.js';
+import { seedInitialAdmin } from './services/auth.service.js';
 import app from './app.js';
 
 async function bootstrap() {
-  // Validate configuration before starting the application
+  // 1. Validate environment configuration before starting the application
   const config = getConfig();
 
-  // If database configuration is provided, verify connectivity on startup
+  // 2. Establish application database connection
   if (config.DATABASE_URL) {
     initPool(config.DATABASE_URL);
+
+    // 3. Verify database connectivity
     const health = await checkDatabaseHealth();
     if (!health.connected) {
       console.error('Failed to connect to MariaDB during startup: database unreachable.');
@@ -16,6 +19,15 @@ async function bootstrap() {
       process.exit(1);
     }
     console.log('Successfully connected to MariaDB.');
+
+    // 4. Initialize the configured initial administrator according to documented policy
+    try {
+      await seedInitialAdmin(config);
+    } catch (seedErr) {
+      console.error('Initial administrator initialization failed:', seedErr.message);
+      await closePool();
+      process.exit(1);
+    }
   } else {
     console.warn('DATABASE_URL not set: running without database connection.');
   }

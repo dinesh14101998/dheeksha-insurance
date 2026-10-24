@@ -158,4 +158,78 @@ describe('Environment Configuration Validation', () => {
       /Invalid DATABASE_URL scheme/
     );
   });
+
+  test('Missing both ADMIN_EMAIL and ADMIN_PASSWORD produces null credentials safely', () => {
+    const config = validateConfig(validBaseEnv);
+    assert.equal(config.ADMIN_EMAIL, null);
+    assert.equal(config.ADMIN_PASSWORD, null);
+    assert.equal(config.isInitialAdminConfigured, false);
+  });
+
+  test('Providing only ADMIN_EMAIL throws configuration error without leaking values', () => {
+    const testEmail = 'admin@dheekshainsurance.com';
+    assert.throws(
+      () => validateConfig({ ...validBaseEnv, ADMIN_EMAIL: testEmail }),
+      (err) => {
+        assert.match(err.message, /Incomplete administrator credentials: both ADMIN_EMAIL and ADMIN_PASSWORD must be provided/);
+        assert.doesNotMatch(err.message, new RegExp(testEmail));
+        return true;
+      }
+    );
+  });
+
+  test('Providing only ADMIN_PASSWORD throws configuration error without leaking secret values', () => {
+    const testSecretPass = 'SecretAdminPassword123!';
+    assert.throws(
+      () => validateConfig({ ...validBaseEnv, ADMIN_PASSWORD: testSecretPass }),
+      (err) => {
+        assert.match(err.message, /Incomplete administrator credentials: both ADMIN_EMAIL and ADMIN_PASSWORD must be provided/);
+        assert.doesNotMatch(err.message, new RegExp(testSecretPass));
+        return true;
+      }
+    );
+  });
+
+  test('Providing both valid ADMIN_EMAIL and ADMIN_PASSWORD normalizes email and sets isInitialAdminConfigured', () => {
+    const config = validateConfig({
+      ...validBaseEnv,
+      ADMIN_EMAIL: '  Admin.Test@DheekshaInsurance.com  ',
+      ADMIN_PASSWORD: 'ValidAdminPassword123!',
+    });
+    assert.equal(config.ADMIN_EMAIL, 'admin.test@dheekshainsurance.com');
+    assert.equal(config.ADMIN_PASSWORD, 'ValidAdminPassword123!');
+    assert.equal(config.isInitialAdminConfigured, true);
+  });
+
+  test('Invalid ADMIN_EMAIL syntax throws clear error without leaking sensitive values', () => {
+    assert.throws(
+      () =>
+        validateConfig({
+          ...validBaseEnv,
+          ADMIN_EMAIL: 'not-an-email',
+          ADMIN_PASSWORD: 'ValidAdminPassword123!',
+        }),
+      (err) => {
+        assert.match(err.message, /Invalid ADMIN_EMAIL: must be a valid email address/);
+        return true;
+      }
+    );
+  });
+
+  test('ADMIN_PASSWORD shorter than 8 characters is rejected without leaking password', () => {
+    const shortSecret = 'short';
+    assert.throws(
+      () =>
+        validateConfig({
+          ...validBaseEnv,
+          ADMIN_EMAIL: 'admin@dheekshainsurance.com',
+          ADMIN_PASSWORD: shortSecret,
+        }),
+      (err) => {
+        assert.match(err.message, /Invalid ADMIN_PASSWORD: password must be at least 8 characters long/);
+        assert.doesNotMatch(err.message, new RegExp(shortSecret));
+        return true;
+      }
+    );
+  });
 });

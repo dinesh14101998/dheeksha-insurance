@@ -119,6 +119,38 @@ export function validateConfig(env = process.env, options = {}) {
     frontendOrigins.push(parsedUrl.origin);
   }
 
+  // 8. Administrative credentials (ADMIN_EMAIL, ADMIN_PASSWORD)
+  const rawAdminEmail = env.ADMIN_EMAIL !== undefined ? String(env.ADMIN_EMAIL).trim() : '';
+  const rawAdminPassword = env.ADMIN_PASSWORD !== undefined ? String(env.ADMIN_PASSWORD).trim() : '';
+
+  const hasAdminEmail = Boolean(rawAdminEmail);
+  const hasAdminPassword = Boolean(rawAdminPassword);
+
+  let adminEmail = null;
+  let adminPassword = null;
+
+  if (hasAdminEmail !== hasAdminPassword) {
+    throw new Error(
+      'Incomplete administrator credentials: both ADMIN_EMAIL and ADMIN_PASSWORD must be provided if either is configured.'
+    );
+  }
+
+  if (hasAdminEmail && hasAdminPassword) {
+    // Validate email format
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(rawAdminEmail)) {
+      throw new Error('Invalid ADMIN_EMAIL: must be a valid email address.');
+    }
+
+    // Validate password security requirements (at least 8 characters)
+    if (rawAdminPassword.length < 8) {
+      throw new Error('Invalid ADMIN_PASSWORD: password must be at least 8 characters long.');
+    }
+
+    adminEmail = rawAdminEmail.toLowerCase();
+    adminPassword = rawAdminPassword;
+  }
+
   return {
     NODE_ENV: nodeEnv,
     PORT: port,
@@ -128,9 +160,10 @@ export function validateConfig(env = process.env, options = {}) {
     DATABASE_URL: databaseUrl,
     FRONTEND_URL: rawFrontendUrl,
     frontendOrigins,
-    // Optional administrative variables passed through safely
-    ADMIN_EMAIL: env.ADMIN_EMAIL ? env.ADMIN_EMAIL.trim() : null,
-    ADMIN_PASSWORD: env.ADMIN_PASSWORD ? env.ADMIN_PASSWORD.trim() : null,
+    // Administrative credentials and status
+    ADMIN_EMAIL: adminEmail,
+    ADMIN_PASSWORD: adminPassword,
+    isInitialAdminConfigured: Boolean(adminEmail && adminPassword),
     // SMTP & Email Notification configuration
     SMTP_HOST: env.SMTP_HOST ? env.SMTP_HOST.trim() : 'smtp.gmail.com',
     SMTP_PORT: (() => {

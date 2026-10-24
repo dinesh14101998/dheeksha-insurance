@@ -6,11 +6,13 @@ import app from '../../src/app.js';
 import { initPool, closePool, query } from '../../src/config/database.js';
 import { assertSafeIntegrationEnvironment } from '../../src/config/databaseGuard.js';
 import { createAccessToken } from '../../src/utils/jwt.js';
-import { hashPassword } from '../../src/utils/password.js';
+import { hashPassword, verifyPassword } from '../../src/utils/password.js';
 import { resetEnquiryRateLimit, resetLoginRateLimit } from '../../src/middlewares/rateLimiter.middleware.js';
 import { installEmailSuppression, isEmailSuppressionActive } from '../helpers/emailSuppression.js';
 import { createTestEntityTracker } from '../helpers/testTracker.js';
 import { waitForPendingNotifications, setTransporter } from '../../src/services/email.service.js';
+import { seedInitialAdmin } from '../../src/services/auth.service.js';
+import { initializeDatabase } from '../../src/scripts/initDb.js';
 
 describe('Real MariaDB HTTP API Integration Tests', () => {
   let server;
@@ -605,8 +607,8 @@ describe('Real MariaDB HTTP API Integration Tests', () => {
       [id3, 'Gamma Customer', '9333333333', 'commercial', 'claim', 'NEW', t3, t3]
     );
 
-    // 1. List all enquiries
-    const listRes = await fetch(`${baseUrl}/api/v1/enquiries`, {
+    // 1. List enquiries matching test customer prefix
+    const listRes = await fetch(`${baseUrl}/api/v1/enquiries?search=Customer`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(listRes.status, 200);
@@ -633,8 +635,8 @@ describe('Real MariaDB HTTP API Integration Tests', () => {
     assert.equal(searchBody.length, 1);
     assert.equal(searchBody[0].id, id2);
 
-    // 4. Sorting: oldest first
-    const oldestRes = await fetch(`${baseUrl}/api/v1/enquiries?sort_by=oldest`, {
+    // 4. Sorting: oldest first for test customer enquiries
+    const oldestRes = await fetch(`${baseUrl}/api/v1/enquiries?search=Customer&sort_by=oldest`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(oldestRes.status, 200);
@@ -642,8 +644,8 @@ describe('Real MariaDB HTTP API Integration Tests', () => {
     assert.equal(oldestBody[0].id, id1);
     assert.equal(oldestBody[2].id, id3);
 
-    // 5. Sorting: newest first (default)
-    const newestRes = await fetch(`${baseUrl}/api/v1/enquiries?sort_by=newest`, {
+    // 5. Sorting: newest first for test customer enquiries
+    const newestRes = await fetch(`${baseUrl}/api/v1/enquiries?search=Customer&sort_by=newest`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(newestRes.status, 200);
@@ -652,7 +654,7 @@ describe('Real MariaDB HTTP API Integration Tests', () => {
     assert.equal(newestBody[2].id, id1);
 
     // 6. Pagination: limit=2, skip=1
-    const pagedRes = await fetch(`${baseUrl}/api/v1/enquiries?sort_by=oldest&limit=2&skip=1`, {
+    const pagedRes = await fetch(`${baseUrl}/api/v1/enquiries?search=Customer&sort_by=oldest&limit=2&skip=1`, {
       headers: { Authorization: `Bearer ${adminToken}` },
     });
     assert.equal(pagedRes.status, 200);
@@ -1098,5 +1100,153 @@ describe('Real MariaDB HTTP API Integration Tests', () => {
       const body = await res.json();
       assert.equal(body.detail, 'Could not validate credentials');
     }
+  });
+
+  // =========================================================================
+  // I. INITIAL ADMINISTRATOR SEEDING & IDEMPOTENCY (LIVE MARIADB)
+  // =========================================================================
+
+  test('I1: seedInitialAdmin creates absent administrator with UUID and bcrypt hash in isolated test DB', async (t) => {
+    if (skipAll) {
+      t.skip('Opt-in absent');
+      return;
+    }
+
+    const uniqueSeedEmail = `test_seed_${Date.now()}_${Math.random().toString(36).substring(2, 7)}@dheekshatest.local`;
+    const seedPassword = 'IntegrationSeedPassword123!';
+
+    const result = await seedInitialAdmin({
+      ADMIN_EMAIL: uniqueSeedEmail,
+      ADMIN_PASSWORD: seedPassword,
+    });
+
+    assert.equal(result.seeded, true);
+    assert.equal(result.reason, 'created');
+    assert.equal(result.email, uniqueSeedEmail);
+    assert.ok(result.id, 'Expected generated UUID id');
+
+    // Track for scoped cleanup in after() hook
+    adminTracker.trackAdmin(result.id);
+
+    // Verify row directly in MariaDB test schema
+    const rows = await query('SELECT id, email, hashed_password, created_at FROM admins WHERE id = ?;', [result.id]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].email, uniqueSeedEmail);
+
+    // Password must be hashed with bcrypt, never plaintext
+    assert.notEqual(rows[0].hashed_password, seedPassword);
+    assert.ok(rows[0].hashed_password.startsWith('$2a$') || rows[0].hashed_password.startsWith('$2b$'));
+
+    const isMatch = await verifyPassword(seedPassword, rows[0].hashed_password);
+    assert.equal(isMatch, true);
+  });
+
+  test('I2: seedInitialAdmin is idempotent and strictly preserves existing administrator password in real MariaDB', async (t) => {
+    if (skipAll) {
+      t.skip('Opt-in absent');
+      return;
+    }
+
+    const uniqueSeedEmail = `test_seed_idem_${Date.now()}_${Math.random().toString(36).substring(2, 7)}@dheekshatest.local`;
+    const originalPassword = 'OriginalSecretPassword123!';
+
+    // First run creates the administrator
+    const firstResult = await seedInitialAdmin({
+      ADMIN_EMAIL: uniqueSeedEmail,
+      ADMIN_PASSWORD: originalPassword,
+    });
+    assert.equal(firstResult.seeded, true);
+    adminTracker.trackAdmin(firstResult.id);
+
+    // Capture original row state
+    const [originalRow] = await query('SELECT id, email, hashed_password FROM admins WHERE id = ?;', [firstResult.id]);
+
+    // Second run with a different password must not overwrite
+    const secondResult = await seedInitialAdmin({
+      ADMIN_EMAIL: uniqueSeedEmail,
+      ADMIN_PASSWORD: 'AttemptedOverwritingPassword999!',
+    });
+
+    assert.equal(secondResult.seeded, false);
+    assert.equal(secondResult.reason, 'already_exists');
+    assert.equal(secondResult.id, firstResult.id);
+    assert.equal(secondResult.email, uniqueSeedEmail);
+
+    // Re-query database to verify password was NOT overwritten
+    const [rowAfterSecondRun] = await query('SELECT id, email, hashed_password FROM admins WHERE id = ?;', [firstResult.id]);
+    assert.equal(rowAfterSecondRun.hashed_password, originalRow.hashed_password, 'Hash must not change');
+
+    // Verify original password still authenticates and new password fails
+    assert.equal(await verifyPassword(originalPassword, rowAfterSecondRun.hashed_password), true);
+    assert.equal(await verifyPassword('AttemptedOverwritingPassword999!', rowAfterSecondRun.hashed_password), false);
+  });
+
+  test('I3: Seeded administrator can authenticate via HTTP POST /api/v1/auth/login and access /api/v1/auth/me', async (t) => {
+    if (skipAll) {
+      t.skip('Opt-in absent');
+      return;
+    }
+
+    const uniqueSeedEmail = `test_seed_login_${Date.now()}_${Math.random().toString(36).substring(2, 7)}@dheekshatest.local`;
+    const validPassword = 'LiveSeedLoginPassword123!';
+
+    const seedResult = await seedInitialAdmin({
+      ADMIN_EMAIL: uniqueSeedEmail,
+      ADMIN_PASSWORD: validPassword,
+    });
+    adminTracker.trackAdmin(seedResult.id);
+
+    // 1. Authenticate with seeded credentials
+    const formData = new URLSearchParams();
+    formData.append('username', uniqueSeedEmail);
+    formData.append('password', validPassword);
+
+    const loginRes = await fetch(`${baseUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData.toString(),
+    });
+
+    assert.equal(loginRes.status, 200);
+    const loginBody = await loginRes.json();
+    assert.ok(loginBody.access_token);
+    assert.equal(loginBody.token_type, 'bearer');
+
+    // 2. Access protected /api/v1/auth/me
+    const meRes = await fetch(`${baseUrl}/api/v1/auth/me`, {
+      headers: { Authorization: `Bearer ${loginBody.access_token}` },
+    });
+    assert.equal(meRes.status, 200);
+    const meBody = await meRes.json();
+    assert.equal(meBody.email, uniqueSeedEmail);
+    assert.equal(meBody.hashed_password, undefined);
+    assert.equal(meBody.password, undefined);
+  });
+
+  test('I4: initializeDatabase against live isolated test DB detects existing tables and safely stops without altering schema', async (t) => {
+    if (skipAll) {
+      t.skip('Opt-in absent');
+      return;
+    }
+
+    // Capture row count of admins before check
+    const [adminCountBefore] = await query('SELECT COUNT(*) AS total FROM admins;');
+
+    const initResult = await initializeDatabase({
+      confirm: true,
+      isTest: true,
+      databaseUrl: process.env.TEST_DATABASE_URL,
+    });
+
+    assert.equal(initResult.initialized, false);
+    assert.equal(initResult.reason, 'already_initialized');
+    assert.ok(Array.isArray(initResult.tables));
+    assert.ok(initResult.tables.includes('admins'));
+    assert.ok(initResult.tables.includes('enquiries'));
+    assert.ok(initResult.tables.includes('enquiry_notes'));
+
+    // Verify row count remained completely unchanged
+    const [adminCountAfter] = await query('SELECT COUNT(*) AS total FROM admins;');
+    assert.equal(adminCountAfter.total, adminCountBefore.total);
   });
 });
