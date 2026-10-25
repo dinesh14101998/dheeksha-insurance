@@ -42,6 +42,7 @@ async function bootstrap() {
   const server = app.listen(config.PORT, config.HOST, () => {
     console.log(`Dheeksha Insurance Node.js backend listening on http://${config.HOST}:${config.PORT}`);
     console.log(`Environment: ${config.NODE_ENV}`);
+    console.log(`Proxy Trust: ${config.TRUST_PROXY !== false ? config.TRUST_PROXY : 'disabled (direct connections)'}`);
   });
 
   // Graceful Shutdown Handling

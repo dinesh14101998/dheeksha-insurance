@@ -1,4 +1,5 @@
 import express from 'express';
+import helmet from 'helmet';
 import cors from 'cors';
 import { checkDatabaseHealth } from './config/database.js';
 import { getConfig } from './config/env.js';
@@ -8,6 +9,44 @@ const app = express();
 
 // Disable X-Powered-By header for security hardening
 app.disable('x-powered-by');
+
+// Configure Reverse Proxy Trust
+// In local/direct development, defaults to false (ignoring unverified X-Forwarded-* headers).
+// Behind a single reverse proxy (e.g., Nginx on localhost or Docker network), set TRUST_PROXY=1 or loopback.
+let trustProxySetting = false;
+try {
+  const config = getConfig();
+  if (config?.TRUST_PROXY !== undefined) {
+    trustProxySetting = config.TRUST_PROXY;
+  }
+} catch {
+  // In test harness without full config, fallback safely to false
+}
+app.set('trust proxy', trustProxySetting);
+
+// HTTP Security Headers via Helmet
+const isProduction = process.env.NODE_ENV === 'production';
+app.use(
+  helmet({
+    // Disable CSP on API backend: API endpoints return JSON, not HTML/scripts.
+    // The frontend SPA web server / Nginx enforces the client Content-Security-Policy.
+    contentSecurityPolicy: false,
+
+    // Allow cross-origin consumers (React frontend on localhost:5173 or production domain)
+    // to read API responses according to the configured CORS policy.
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+
+    // Enable HSTS (Strict-Transport-Security) only in production environments.
+    // Avoids enforcing HTTPS during local HTTP development or in automated test suites.
+    hsts: isProduction
+      ? {
+          maxAge: 31536000, // 1 year
+          includeSubDomains: true,
+          preload: false,
+        }
+      : false,
+  })
+);
 
 // CORS configuration supporting multi-origin allowlist
 app.use((req, res, next) => {

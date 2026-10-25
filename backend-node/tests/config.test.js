@@ -232,4 +232,30 @@ describe('Environment Configuration Validation', () => {
       }
     );
   });
+
+  test('TRUST_PROXY defaults to false when omitted or empty', () => {
+    const config1 = validateConfig(validBaseEnv);
+    assert.equal(config1.TRUST_PROXY, false);
+
+    const config2 = validateConfig({ ...validBaseEnv, TRUST_PROXY: '' });
+    assert.equal(config2.TRUST_PROXY, false);
+  });
+
+  test('TRUST_PROXY accepts valid configurations (number, boolean, subnet)', () => {
+    const config1 = validateConfig({ ...validBaseEnv, TRUST_PROXY: '1' });
+    assert.equal(config1.TRUST_PROXY, 1);
+
+    const config2 = validateConfig({ ...validBaseEnv, TRUST_PROXY: 'false' });
+    assert.equal(config2.TRUST_PROXY, false);
+
+    const config3 = validateConfig({ ...validBaseEnv, TRUST_PROXY: 'loopback' });
+    assert.equal(config3.TRUST_PROXY, 'loopback');
+  });
+
+  test('Invalid TRUST_PROXY throws error without leaking sensitive values', () => {
+    assert.throws(
+      () => validateConfig({ ...validBaseEnv, TRUST_PROXY: 'bad-proxy-!@#$' }),
+      /Invalid TRUST_PROXY/
+    );
+  });
 });

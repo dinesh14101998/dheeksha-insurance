@@ -1,0 +1,38 @@
+# ==============================================================================
+# Dheeksha Insurance — Nginx Logrotate Configuration Template
+# ==============================================================================
+# NOTE ON LOGGING ARCHITECTURE & SYSTEMD JOURNALD:
+# - The Node.js Express backend outputs all operational logs directly to stdout/stderr.
+# - Under systemd, Node.js logs are ingested and rotated automatically by systemd-journald
+#   (configured via /etc/systemd/journald.conf).
+# - Do NOT configure logrotate for the Node.js backend, as it does not write local log files.
+#
+# NGINX LOG ROTATION:
+# - Most Linux distributions (Ubuntu, Debian, RHEL) install a default logrotate
+#   configuration at /etc/logrotate.d/nginx that rotates all /var/log/nginx/*.log files.
+# - Use this example ONLY if you configure dedicated site-specific log files for Dheeksha
+#   Insurance (e.g., /var/log/nginx/dheeksha_access.log) outside the default wildcards,
+#   to prevent conflicting or duplicate rotation policies.
+# ==============================================================================
+
+/var/log/nginx/dheeksha_*.log {
+    daily
+    missingok
+    rotate 14
+    compress
+    delaycompress
+    notifempty
+    create 0640 <NGINX_USER> adm
+    sharedscripts
+    prerotate
+        if [ -d /etc/logrotate.d/httpd-prerotate ]; then \
+            run-parts /etc/logrotate.d/httpd-prerotate; \
+        fi \
+    endscript
+    postrotate
+        # Signal Nginx to reopen log files without restarting or dropping connections
+        invoke-rc.d nginx rotate >/dev/null 2>&1 || true
+        # Alternative for systemd-only environments:
+        # [ ! -f /run/nginx.pid ] || kill -USR1 `cat /run/nginx.pid`
+    endscript
+}

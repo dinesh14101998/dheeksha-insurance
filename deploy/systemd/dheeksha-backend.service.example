@@ -1,0 +1,121 @@
+# ==============================================================================
+# Dheeksha Insurance — Backend systemd Service Unit Template
+# ==============================================================================
+# This template defines a hardened, production-ready systemd unit to manage
+# the Node.js Express 5 API service for Dheeksha Insurance.
+#
+# IMPORTANT:
+# - Review and replace all placeholders enclosed in <ANGLE_BRACKETS> before use.
+# - Do NOT run this service as root. Create a dedicated unprivileged system user.
+# - Ensure file permissions on the EnvironmentFile are restricted (e.g., chmod 600).
+# - Do NOT execute systemctl commands on the local development machine.
+# ==============================================================================
+
+[Unit]
+Description=Dheeksha Insurance Node.js Backend API
+Documentation=https://github.com/Bhaarathinesan/dheeksha-insurance
+After=network.target mariadb.service
+Wants=mariadb.service
+
+[Service]
+Type=simple
+
+# ------------------------------------------------------------------------------
+# Process & User Execution
+# ------------------------------------------------------------------------------
+# Dedicated unprivileged system user and group created specifically for this service:
+# e.g., sudo useradd -r -s /usr/sbin/nologin -d <APP_DIR> dheeksha
+User=<SERVICE_USER>
+Group=<SERVICE_GROUP>
+
+# Working directory must point to the backend-node directory
+WorkingDirectory=<APP_DIR>/backend-node
+
+# Node.js binary path and entry point.
+# Verify node path on server via `which node` (e.g., /usr/bin/node or /usr/local/bin/node)
+ExecStart=<NODE_BINARY_PATH> src/server.js
+
+# ------------------------------------------------------------------------------
+# Environment & Secrets Configuration
+# ------------------------------------------------------------------------------
+# Never hardcode secrets in this unit file.
+# Store production secrets in a dedicated configuration file readable only by <SERVICE_USER>:
+# e.g., /etc/dheeksha-insurance/backend.env (owned by <SERVICE_USER>, chmod 600)
+#
+# Since backend-node/src/config/env.js skips dotenv in production,
+# EnvironmentFile supplies all required variables to the Node process.
+Environment=NODE_ENV=production
+EnvironmentFile=<SECRETS_PATH>/backend.env
+
+# ------------------------------------------------------------------------------
+# Lifecycle & Restart Management
+# ------------------------------------------------------------------------------
+# Restart policy: automatically recover on unexpected failure or crashes
+Restart=on-failure
+RestartSec=5s
+
+# Prevent rapid crash looping (allow at most 5 restart attempts per 60 seconds)
+StartLimitIntervalSec=60s
+StartLimitBurst=5
+
+# Graceful termination handling:
+# Node.js server.js handles SIGTERM, drains active connections, closes the MariaDB
+# pool cleanly, and exits within 10 seconds. We give systemd a 15-second grace period.
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=15s
+
+# ------------------------------------------------------------------------------
+# Security & Sandbox Hardening
+# ------------------------------------------------------------------------------
+# Prevent gaining new privileges via setuid/setgid binaries
+NoNewPrivileges=true
+
+# Filesystem protection:
+# Mount /usr, /boot, /etc, and overall OS filesystem as read-only.
+# Application code does not need write access to its own source tree.
+ProtectSystem=strict
+ProtectHome=true
+ReadOnlyPaths=<APP_DIR>/backend-node
+
+# Isolated temporary directories:
+# Grants a private, isolated /tmp and /var/tmp inaccessible to other users/services
+PrivateTmp=true
+
+# Hardware & device isolation:
+# Creates a private /dev with access restricted only to pseudo-devices (null, zero, random)
+PrivateDevices=true
+
+# Kernel protection:
+# Prevents modification of kernel tunables (/proc/sys, /sys) and module loading
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+# Network & protocol restrictions:
+# Only allow standard Unix domain sockets, IPv4, and IPv6 networking
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+
+# NOTE ON MemoryDenyWriteExecute:
+# Do NOT enable `MemoryDenyWriteExecute=true` for Node.js.
+# Node.js runs on the V8 engine, which relies heavily on Just-In-Time (JIT)
+# compilation requiring memory pages to be marked both writable and executable.
+# Enabling this directive will cause the Node process to crash with SIGABRT on startup.
+
+# ------------------------------------------------------------------------------
+# Resource & Descriptor Limits
+# ------------------------------------------------------------------------------
+# Ensure sufficient file descriptors for high-concurrency connection pooling
+LimitNOFILE=65536
+
+# Standard Output & Standard Error:
+# Logs go directly to systemd-journald for centralized collection and retention
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dheeksha-backend
+
+[Install]
+WantedBy=multi-user.target

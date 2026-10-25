@@ -8,6 +8,50 @@ if (process.env.NODE_ENV !== 'production') {
 const VALID_ENVIRONMENTS = new Set(['development', 'test', 'production']);
 
 /**
+ * Parses and normalizes the TRUST_PROXY environment variable.
+ * Default: false (safe default; direct connection, does not trust unverified forwarded headers).
+ *
+ * Supported values:
+ * - false / 0: Do not trust proxies (direct connections).
+ * - true: Trust all proxies (use with caution).
+ * - integer >= 0 (e.g. 1): Trust n upstream proxy hops (e.g., 1 for Nginx on localhost).
+ * - string / subnet list (e.g. 'loopback', '127.0.0.1, ::1'): Trust specific proxy IP(s).
+ *
+ * @param {string | undefined | null} rawValue
+ * @returns {boolean | number | string}
+ */
+export function parseTrustProxy(rawValue) {
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === '') {
+    return false;
+  }
+
+  const trimmed = String(rawValue).trim();
+  const lower = trimmed.toLowerCase();
+
+  if (lower === 'false' || lower === '0') {
+    return false;
+  }
+
+  if (lower === 'true') {
+    return true;
+  }
+
+  // Integer hop count (e.g. 1, 2)
+  if (/^\d+$/.test(trimmed)) {
+    return parseInt(trimmed, 10);
+  }
+
+  // IP, subnet identifier, or comma-separated list (e.g. "loopback", "127.0.0.1", "127.0.0.1, ::1")
+  if (/^[a-zA-Z0-9.,:\s/-]+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  throw new Error(
+    `Invalid TRUST_PROXY: "${trimmed}". Must be a boolean ("true"/"false"), positive integer hop count (e.g. "1"), or IP/subnet identifier (e.g. "loopback").`
+  );
+}
+
+/**
  * Validates and normalizes environment configuration.
  * Never logs or returns secret values in error messages.
  *
@@ -151,6 +195,11 @@ export function validateConfig(env = process.env, options = {}) {
     adminPassword = rawAdminPassword;
   }
 
+  // 9. Reverse Proxy Trust Configuration (TRUST_PROXY)
+  // Default: false (direct connections, never trust arbitrary client-supplied X-Forwarded-For)
+  // Production behind single reverse proxy (e.g. Nginx on localhost): 1 (or 'loopback')
+  const trustProxy = parseTrustProxy(env.TRUST_PROXY);
+
   return {
     NODE_ENV: nodeEnv,
     PORT: port,
@@ -160,6 +209,7 @@ export function validateConfig(env = process.env, options = {}) {
     DATABASE_URL: databaseUrl,
     FRONTEND_URL: rawFrontendUrl,
     frontendOrigins,
+    TRUST_PROXY: trustProxy,
     // Administrative credentials and status
     ADMIN_EMAIL: adminEmail,
     ADMIN_PASSWORD: adminPassword,
