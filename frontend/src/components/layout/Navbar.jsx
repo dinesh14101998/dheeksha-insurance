@@ -33,7 +33,7 @@ const Navbar = () => {
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <div className="flex-shrink-0 flex items-center">
-            <Link to="/" className="inline-block p-1 rounded-xl transition-colors dark:bg-white/10 dark:px-2">
+            <Link to="/" className="inline-flex items-center p-1 rounded-xl transition-all duration-200 dark:bg-white dark:px-3.5 dark:py-1.5 md:dark:px-4 md:dark:py-2 dark:shadow-sm">
               <Logo />
             </Link>
           </div>
