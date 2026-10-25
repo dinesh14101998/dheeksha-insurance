@@ -15,6 +15,7 @@ import EnquiryList from './pages/admin/EnquiryList';
 import EnquiryDetail from './pages/admin/EnquiryDetail';
 import ProtectedRoute from './components/admin/ProtectedRoute';
 import NotFound from './pages/NotFound';
+import FloatingActions from './components/common/FloatingActions';
 
 function App() {
   return (
@@ -72,6 +73,8 @@ function App() {
           <Route path="/admin/*" element={null} />
           <Route path="*" element={<Footer />} />
         </Routes>
+
+        <FloatingActions />
       </div>
     </Router>
   );

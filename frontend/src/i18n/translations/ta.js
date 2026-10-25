@@ -524,6 +524,12 @@ export const ta = {
   requirement: 'தேவை',
   message: 'செய்தி',
   sendEnquiry: 'விசாரணையை அனுப்பவும்',
+  floating: {
+    sendEnquiry: 'விசாரணையை அனுப்பவும்',
+    sendEnquiryAria: 'விசாரணை அனுப்பவும்',
+    chatWhatsapp: 'வாட்ஸ்அப்பில் பேச',
+    backToTop: 'மேலே செல்ல',
+  },
 };
 
 export default ta;

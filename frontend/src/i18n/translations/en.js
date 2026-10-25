@@ -523,6 +523,12 @@ export const en = {
   requirement: 'Requirement',
   message: 'Message',
   sendEnquiry: 'Send Enquiry',
+  floating: {
+    sendEnquiry: 'Send Enquiry',
+    sendEnquiryAria: 'Send an enquiry',
+    chatWhatsapp: 'Chat on WhatsApp',
+    backToTop: 'Back to top',
+  },
 };
 
 export default en;
